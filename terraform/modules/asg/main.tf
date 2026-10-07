@@ -66,13 +66,17 @@ resource "aws_autoscaling_group" "app" {
     version = aws_launch_template.app.latest_version
   }
 
-  # Rolling replacement whenever the launch template (app version / AMI) changes
+  # Rolling replacement whenever the launch template (app version / AMI) changes.
+  # New instances launch before old ones are terminated (capacity never drops),
+  # which keeps the window where old and new versions run side by side short.
   instance_refresh {
     strategy = "Rolling"
 
     preferences {
-      min_healthy_percentage = 50
-      instance_warmup        = 300
+      min_healthy_percentage = 100
+      max_healthy_percentage = 200
+      instance_warmup        = 180
+      skip_matching          = true
     }
   }
 
