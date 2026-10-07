@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars for local runs (terraform.tfvars is git-ignored).
+# In GitHub Actions these come from repository variables (TF_VAR_*).
+aws_region    = "ap-south-1"
+domain_name   = "example.com" # your Route 53 hosted zone
+app_subdomain = "app"         # -> https://app.example.com
+
+# Optional HA / sizing overrides
+# single_nat_gateway = false
+# db_multi_az        = true
+# instance_type      = "t3.small"

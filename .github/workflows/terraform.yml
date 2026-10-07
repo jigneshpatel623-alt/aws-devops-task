@@ -1,0 +1,182 @@
+name: Terraform CI/CD
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - "app/**"
+      - "scripts/**"
+      - ".github/workflows/terraform.yml"
+  push:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - "app/**"
+      - "scripts/**"
+      - ".github/workflows/terraform.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write       # OIDC -> AWS (no stored access keys)
+  contents: read
+  pull-requests: write  # post plan as PR comment
+
+concurrency:
+  group: terraform-dev
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: "1.10.5"
+  WORKDIR: terraform/envs/dev
+  TF_IN_AUTOMATION: "true"
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+  TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
+  TF_VAR_app_subdomain: ${{ vars.APP_SUBDOMAIN }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  validate:
+    name: Format & Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive terraform
+
+      - name: terraform init (no backend)
+        working-directory: ${{ env.WORKDIR }}
+        run: terraform init -backend=false -input=false
+
+      - name: terraform validate
+        working-directory: ${{ env.WORKDIR }}
+        run: terraform validate -no-color
+
+  # ---------------------------------------------------------------------------
+  security-scan:
+    name: Security Scan (Checkov)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform
+          framework: terraform
+          quiet: true
+          soft_fail: true   # report only; does not block the pipeline
+
+  # ---------------------------------------------------------------------------
+  plan:
+    name: Terraform Plan
+    needs: [validate]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: terraform init
+        working-directory: ${{ env.WORKDIR }}
+        run: >
+          terraform init -input=false
+          -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          -backend-config="region=${{ vars.AWS_REGION }}"
+
+      - name: terraform plan
+        id: plan
+        working-directory: ${{ env.WORKDIR }}
+        run: terraform plan -input=false -no-color -lock-timeout=5m
+
+      - name: Comment plan on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          PLAN: ${{ steps.plan.outputs.stdout }}
+        with:
+          script: |
+            const max = 60000;
+            let plan = process.env.PLAN || '';
+            if (plan.length > max) plan = plan.substring(plan.length - max);
+            const body = `### Terraform Plan (dev)\n<details><summary>Show plan</summary>\n\n\`\`\`terraform\n${plan}\n\`\`\`\n</details>\n\n*Triggered by @${context.actor}*`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
+
+  # ---------------------------------------------------------------------------
+  apply:
+    name: Terraform Apply
+    needs: [plan, security-scan]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: production   # add required reviewers in repo settings for manual approval
+    outputs:
+      app_url: ${{ steps.out.outputs.app_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: terraform init
+        working-directory: ${{ env.WORKDIR }}
+        run: >
+          terraform init -input=false
+          -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          -backend-config="region=${{ vars.AWS_REGION }}"
+
+      - name: terraform apply
+        working-directory: ${{ env.WORKDIR }}
+        run: terraform apply -input=false -auto-approve -lock-timeout=5m
+
+      - name: Read outputs
+        id: out
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          echo "app_url=$(terraform output -raw app_url)" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Deployment complete"
+            echo ""
+            echo "| Output | Value |"
+            echo "|---|---|"
+            echo "| App URL | $(terraform output -raw app_url) |"
+            echo "| ALB DNS | $(terraform output -raw alb_dns_name) |"
+            echo "| ASG | $(terraform output -raw asg_name) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  smoke-test:
+    name: Health Check
+    needs: [apply]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: End-to-end health checks
+        run: bash scripts/health_check.sh "${{ needs.apply.outputs.app_url }}"
