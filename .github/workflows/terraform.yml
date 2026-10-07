@@ -144,6 +144,22 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
+      # AWS creates this role on first use of Auto Scaling, but a role created
+      # seconds before the first ASG launch is not yet usable ("Access denied when
+      # attempting to assume role ... AWSServiceRoleForAutoScaling"). Create it
+      # ahead of time and give IAM a moment to propagate. No-op if it exists.
+      - name: Ensure Auto Scaling service-linked role
+        run: |
+          if out=$(aws iam create-service-linked-role --aws-service-name autoscaling.amazonaws.com 2>&1); then
+            echo "Created AWSServiceRoleForAutoScaling; waiting 60s for IAM propagation"
+            sleep 60
+          elif echo "$out" | grep -q "has been taken"; then
+            echo "AWSServiceRoleForAutoScaling already exists"
+          else
+            echo "$out"
+            exit 1
+          fi
+
       - name: terraform init
         working-directory: ${{ env.WORKDIR }}
         run: >
