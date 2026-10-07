@@ -74,6 +74,12 @@ variable "db_instance_class" {
   default = "db.t3.micro"
 }
 
+variable "deletion_protection" {
+  description = "Deletion protection for RDS and the ALB. The Destroy workflow sets this to false before destroying."
+  type        = bool
+  default     = true
+}
+
 variable "db_multi_az" {
   description = "Enable RDS Multi-AZ standby (extra cost)"
   type        = bool

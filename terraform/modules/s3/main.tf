@@ -32,10 +32,22 @@ resource "aws_s3_bucket_public_access_block" "this" {
   restrict_public_buckets = true
 }
 
-# Encryption at rest. ALB access logs only support SSE-S3 (AES256).
-resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
-  for_each = aws_s3_bucket.this
-  bucket   = each.value.id
+# Encryption at rest: app bucket uses the customer-managed KMS key;
+# the ALB logs bucket must use SSE-S3 (ALB log delivery does not support KMS).
+resource "aws_s3_bucket_server_side_encryption_configuration" "app" {
+  bucket = aws_s3_bucket.this["app"].id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = var.kms_key_arn
+    }
+    bucket_key_enabled = true
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "logs" {
+  bucket = aws_s3_bucket.this["logs"].id
 
   rule {
     apply_server_side_encryption_by_default {

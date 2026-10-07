@@ -48,6 +48,15 @@ jobs:
           -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
           -backend-config="region=${{ vars.AWS_REGION }}"
 
+      # RDS and the ALB have deletion protection on; switch it off first
+      - name: Disable deletion protection
+        working-directory: ${{ env.WORKDIR }}
+        run: >
+          terraform apply -input=false -auto-approve -lock-timeout=5m
+          -var="deletion_protection=false"
+          -target=module.rds.aws_db_instance.this
+          -target=module.alb.aws_lb.this
+
       - name: terraform destroy
         working-directory: ${{ env.WORKDIR }}
-        run: terraform destroy -input=false -auto-approve -lock-timeout=5m
+        run: terraform destroy -input=false -auto-approve -lock-timeout=5m -var="deletion_protection=false"

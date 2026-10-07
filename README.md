@@ -14,8 +14,9 @@ Internet → Route 53 → ALB (HTTPS, ACM) → Auto Scaling EC2 (private, 2 AZs)
 | Networking | VPC, public/private-app/private-db subnets in 2 AZs, IGW, NAT Gateway, route tables |
 | Compute | Launch Template (AL2023, IMDSv2, encrypted EBS) + Auto Scaling Group with CPU target tracking and rolling instance refresh |
 | Load balancing | ALB, HTTPS listener (TLS 1.3 policy), HTTP→HTTPS redirect, `/health` checks, access logs to S3 |
-| Database | RDS MySQL 8.0 in private subnets, encrypted, TLS required, automated backups |
-| Secrets | Generated DB password stored in Secrets Manager and read by the app at runtime |
+| Database | RDS MySQL 8.0 in private subnets, KMS-encrypted, TLS required, IAM auth, automated backups, deletion protection |
+| Secrets | Generated DB password stored in Secrets Manager (encrypted with the project KMS key) and read by the app at runtime |
+| Encryption | Customer-managed KMS key with yearly rotation for Secrets Manager, RDS and the app bucket |
 | IAM | EC2 role limited to one secret and one bucket, plus SSM; GitHub OIDC deploy role (no access keys) |
 | Storage | App bucket (versioned) and ALB logs bucket (lifecycle); both encrypted, private, TLS-only |
 | CI/CD | fmt, validate, Checkov, plan on PR (as a comment), apply on `main`, health checks, manual destroy |

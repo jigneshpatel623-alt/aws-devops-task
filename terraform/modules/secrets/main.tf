@@ -10,6 +10,7 @@ resource "random_password" "db" {
 resource "aws_secretsmanager_secret" "db" {
   name                    = "${var.name_prefix}/rds/mysql"
   description             = "RDS MySQL credentials for ${var.name_prefix}"
+  kms_key_id              = var.kms_key_arn
   recovery_window_in_days = var.recovery_window_in_days
 }
 

@@ -6,7 +6,7 @@ resource "aws_lb" "this" {
   subnets            = var.public_subnet_ids
 
   drop_invalid_header_fields = true
-  enable_deletion_protection = false
+  enable_deletion_protection = var.deletion_protection
 
   access_logs {
     bucket  = var.logs_bucket

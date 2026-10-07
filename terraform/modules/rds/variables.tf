@@ -56,9 +56,15 @@ variable "backup_retention_period" {
   default = 7
 }
 
+variable "kms_key_arn" {
+  description = "Customer-managed KMS key for storage encryption"
+  type        = string
+}
+
 variable "deletion_protection" {
-  type    = bool
-  default = false
+  description = "Block deletion of the DB instance (the Destroy workflow disables it first)"
+  type        = bool
+  default     = true
 }
 
 variable "skip_final_snapshot" {

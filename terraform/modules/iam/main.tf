@@ -33,6 +33,22 @@ data "aws_iam_policy_document" "ec2_app" {
     actions   = ["s3:GetObject", "s3:PutObject"]
     resources = ["${var.app_bucket_arn}/*"]
   }
+
+  # Use the project KMS key only through Secrets Manager and S3
+  statement {
+    sid       = "UseProjectKmsKey"
+    actions   = ["kms:Decrypt", "kms:GenerateDataKey"]
+    resources = [var.kms_key_arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values = [
+        "secretsmanager.${var.region}.amazonaws.com",
+        "s3.${var.region}.amazonaws.com",
+      ]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "ec2_app" {

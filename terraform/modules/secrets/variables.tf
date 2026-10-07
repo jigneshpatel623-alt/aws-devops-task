@@ -20,6 +20,11 @@ variable "db_port" {
   default = 3306
 }
 
+variable "kms_key_arn" {
+  description = "Customer-managed KMS key used to encrypt the secret"
+  type        = string
+}
+
 variable "recovery_window_in_days" {
   description = "0 = delete immediately on destroy (handy for demo environments)"
   type        = number

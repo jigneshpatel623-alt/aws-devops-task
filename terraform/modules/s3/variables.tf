@@ -8,6 +8,11 @@ variable "account_id" {
   type        = string
 }
 
+variable "kms_key_arn" {
+  description = "Customer-managed KMS key for the app bucket"
+  type        = string
+}
+
 variable "force_destroy" {
   description = "Allow terraform destroy to delete non-empty buckets"
   type        = bool

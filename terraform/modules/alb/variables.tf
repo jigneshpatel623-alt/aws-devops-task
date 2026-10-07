@@ -18,6 +18,12 @@ variable "certificate_arn" {
   type = string
 }
 
+variable "deletion_protection" {
+  description = "Block deletion of the load balancer (the Destroy workflow disables it first)"
+  type        = bool
+  default     = true
+}
+
 variable "logs_bucket" {
   description = "S3 bucket for ALB access logs"
   type        = string

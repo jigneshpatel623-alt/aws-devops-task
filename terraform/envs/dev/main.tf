@@ -34,11 +34,18 @@ module "security_groups" {
   app_port = local.app_port
 }
 
-# 3. S3 buckets (app storage + ALB logs)
+# 3. Customer-managed KMS key (Secrets Manager, RDS, app bucket)
+module "kms" {
+  source      = "../../modules/kms"
+  name_prefix = local.name_prefix
+}
+
+# 3b. S3 buckets (app storage + ALB logs)
 module "s3" {
   source      = "../../modules/s3"
   name_prefix = local.name_prefix
   account_id  = data.aws_caller_identity.current.account_id
+  kms_key_arn = module.kms.key_arn
 }
 
 resource "aws_s3_object" "app" {
@@ -58,19 +65,22 @@ module "secrets" {
   db_name     = var.db_name
   db_host     = module.rds.address
   db_port     = module.rds.port
+  kms_key_arn = module.kms.key_arn
 }
 
 # 5. RDS MySQL (private DB subnets)
 module "rds" {
-  source            = "../../modules/rds"
-  name_prefix       = local.name_prefix
-  subnet_ids        = module.vpc.private_db_subnet_ids
-  security_group_id = module.security_groups.rds_sg_id
-  db_name           = var.db_name
-  username          = var.db_username
-  password          = module.secrets.db_password
-  instance_class    = var.db_instance_class
-  multi_az          = var.db_multi_az
+  source              = "../../modules/rds"
+  name_prefix         = local.name_prefix
+  subnet_ids          = module.vpc.private_db_subnet_ids
+  security_group_id   = module.security_groups.rds_sg_id
+  db_name             = var.db_name
+  username            = var.db_username
+  password            = module.secrets.db_password
+  instance_class      = var.db_instance_class
+  multi_az            = var.db_multi_az
+  kms_key_arn         = module.kms.key_arn
+  deletion_protection = var.deletion_protection
 }
 
 # 6. IAM for EC2
@@ -79,6 +89,8 @@ module "iam" {
   name_prefix    = local.name_prefix
   secret_arn     = module.secrets.secret_arn
   app_bucket_arn = module.s3.app_bucket_arn
+  kms_key_arn    = module.kms.key_arn
+  region         = var.aws_region
 }
 
 # 7. TLS certificate
@@ -90,18 +102,19 @@ module "acm" {
 
 # 8. Application Load Balancer (HTTPS)
 module "alb" {
-  source            = "../../modules/alb"
-  name_prefix       = local.name_prefix
-  vpc_id            = module.vpc.vpc_id
-  public_subnet_ids = module.vpc.public_subnet_ids
-  security_group_id = module.security_groups.alb_sg_id
-  certificate_arn   = module.acm.certificate_arn
-  logs_bucket       = module.s3.logs_bucket_id
-  logs_prefix       = module.s3.logs_prefix
-  app_port          = local.app_port
-  create_dns_record = local.use_domain
-  zone_id           = module.acm.zone_id
-  fqdn              = local.app_fqdn
+  source              = "../../modules/alb"
+  name_prefix         = local.name_prefix
+  vpc_id              = module.vpc.vpc_id
+  public_subnet_ids   = module.vpc.public_subnet_ids
+  security_group_id   = module.security_groups.alb_sg_id
+  certificate_arn     = module.acm.certificate_arn
+  logs_bucket         = module.s3.logs_bucket_id
+  logs_prefix         = module.s3.logs_prefix
+  app_port            = local.app_port
+  deletion_protection = var.deletion_protection
+  create_dns_record   = local.use_domain
+  zone_id             = module.acm.zone_id
+  fqdn                = local.app_fqdn
 }
 
 # 9. Auto Scaling Group with Launch Template

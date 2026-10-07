@@ -23,6 +23,10 @@ output "db_secret_arn" {
   value = module.secrets.secret_arn
 }
 
+output "kms_key_alias" {
+  value = module.kms.alias_name
+}
+
 output "app_bucket" {
   value = module.s3.app_bucket_id
 }
