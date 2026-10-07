@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}All submissions{% endblock %}
+{% block content %}
+<section style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:12px;margin-bottom:20px">
+  <div>
+    <h1>All submissions</h1>
+    <p class="sub">{{ total }} saved in RDS MySQL{% if q or category %} matching your filters{% endif %}.</p>
+  </div>
+  <a class="btn" href="{{ url_for('index') }}#form">+ New submission</a>
+</section>
+
+<div class="card">
+  <form class="toolbar" method="get" action="{{ url_for('submissions') }}">
+    <input type="search" name="q" value="{{ q }}" placeholder="Search name, email or message…" aria-label="Search">
+    <select name="category" aria-label="Category">
+      <option value="">All categories</option>
+      {% for c in categories %}<option value="{{ c }}" {{ 'selected' if category == c }}>{{ c }}</option>{% endfor %}
+    </select>
+    <button class="btn" type="submit">Filter</button>
+    {% if q or category %}<a class="btn ghost" href="{{ url_for('submissions') }}">Clear</a>{% endif %}
+  </form>
+
+  {% if db_error %}
+    <div class="flash error">Database unavailable ({{ db_error }}).</div>
+  {% elif rows %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>#</th><th>Name</th><th>Category</th><th>Message</th><th>Saved by</th><th>Date (UTC)</th></tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td>{{ r.id }}</td>
+            <td><strong>{{ r.name }}</strong><br><span style="color:var(--muted);font-size:13px">{{ r.email }}</span></td>
+            <td><span class="pill tag">{{ r.category }}</span></td>
+            <td style="min-width:260px"><div class="msg">{{ r.message }}</div></td>
+            <td style="font-size:13px;color:var(--muted);white-space:nowrap">{{ r.instance_id }}<br>{{ r.az }}</td>
+            <td style="white-space:nowrap">{{ r.created_at.strftime('%d %b %Y') }}<br><span style="color:var(--muted);font-size:13px">{{ r.created_at.strftime('%H:%M:%S') }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="pager">
+      <span>Page {{ page }} of {{ pages }}</span>
+      <span style="display:flex;gap:8px">
+        {% if page > 1 %}<a class="btn ghost" href="{{ url_for('submissions', q=q, category=category, page=page-1) }}">← Previous</a>{% endif %}
+        {% if page < pages %}<a class="btn ghost" href="{{ url_for('submissions', q=q, category=category, page=page+1) }}">Next →</a>{% endif %}
+      </span>
+    </div>
+  {% else %}
+    <div class="empty">
+      {% if q or category %}No submissions match your filters.{% else %}No submissions yet.{% endif %}
+      <div style="margin-top:12px"><a class="btn" href="{{ url_for('index') }}#form">Add the first one</a></div>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

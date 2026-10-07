@@ -40,6 +40,7 @@ WorkingDirectory=/opt/webapp
 Environment=AWS_REGION=${region}
 Environment=DB_SECRET_ARN=${secret_arn}
 Environment=DB_CA_BUNDLE=/opt/webapp/rds-ca-bundle.pem
+Environment=APP_VERSION=${app_version}
 ExecStart=/opt/webapp/venv/bin/gunicorn --workers 2 --bind 0.0.0.0:8080 --access-logfile - app:app
 Restart=always
 RestartSec=5

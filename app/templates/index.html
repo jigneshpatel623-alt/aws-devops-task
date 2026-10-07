@@ -1,33 +1,113 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AWS DevOps Practical Task</title>
-  <style>
-    body { font-family: system-ui, sans-serif; background: #f4f6f8; color: #1f2933; margin: 0; padding: 2rem 1rem; }
-    .card { max-width: 640px; margin: 0 auto; background: #fff; border-radius: 8px; padding: 2rem; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
-    h1 { margin-top: 0; font-size: 1.5rem; }
-    table { width: 100%; border-collapse: collapse; }
-    td { padding: .5rem 0; border-bottom: 1px solid #e4e7eb; }
-    td:first-child { color: #616e7c; width: 45%; }
-    .ok { color: #0e7c3a; font-weight: 600; }
-    .err { color: #b42318; font-weight: 600; }
-    footer { margin-top: 1.5rem; font-size: .85rem; color: #7b8794; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>AWS DevOps Practical Task</h1>
-    <p>ALB (HTTPS) &rarr; Auto Scaling EC2 &rarr; RDS MySQL, deployed with Terraform and GitHub Actions.</p>
-    <table>
-      <tr><td>Served by instance</td><td>{{ instance_id }}</td></tr>
-      <tr><td>Availability Zone</td><td>{{ az }}</td></tr>
-      <tr><td>Database</td>
-        <td>{% if db_ok %}<span class="ok">Connected</span> (MySQL {{ db_version }}){% else %}<span class="err">Unavailable</span> ({{ visits }}){% endif %}</td></tr>
-      {% if db_ok %}<tr><td>Total visits (stored in RDS)</td><td>{{ visits }}</td></tr>{% endif %}
-    </table>
-    <footer>Refresh the page to see requests balanced across instances.</footer>
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<section style="margin-bottom:24px">
+  <h1>AWS DevOps Practical Task</h1>
+  <p class="sub">Highly available web app on AWS, provisioned with Terraform and deployed by GitHub Actions.</p>
+  <div class="flow" aria-label="Architecture">
+    <span class="node">Internet<small>Route 53 · app.corefly.site</small></span><span class="arrow">→</span>
+    <span class="node">Application Load Balancer<small>HTTPS · ACM certificate</small></span><span class="arrow">→</span>
+    <span class="node">EC2 Auto Scaling<small>private subnets · 2 AZs</small></span><span class="arrow">→</span>
+    <span class="node">RDS MySQL<small>private · KMS encrypted</small></span>
+    <span class="node">Secrets Manager<small>DB credentials</small></span>
+    <span class="node">S3<small>app code · ALB logs</small></span>
   </div>
-</body>
-</html>
+</section>
+
+<section class="grid stats" style="margin-bottom:16px">
+  <div class="card stat">
+    <div class="label">Served by</div>
+    <div class="value">{{ meta.instance_id }}</div>
+    <div class="hint">{{ meta.instance_type }} · {{ meta.private_ip }}</div>
+  </div>
+  <div class="card stat">
+    <div class="label">Availability Zone</div>
+    <div class="value">{{ meta.az }}</div>
+    <div class="hint">Region {{ meta.region }}</div>
+  </div>
+  <div class="card stat">
+    <div class="label">Database</div>
+    <div class="value">
+      {% if db_ok %}<span class="pill ok"><span class="dot"></span>Connected</span>
+      {% else %}<span class="pill err"><span class="dot"></span>Unavailable</span>{% endif %}
+    </div>
+    <div class="hint">{% if db_ok %}MySQL {{ db_version }} · TLS{% else %}{{ db_error }}{% endif %}</div>
+  </div>
+  <div class="card stat">
+    <div class="label">Page visits</div>
+    <div class="value">{{ visits if visits is not none else "—" }}</div>
+    <div class="hint">stored in RDS</div>
+  </div>
+  <div class="card stat">
+    <div class="label">Submissions</div>
+    <div class="value">{{ total if total is not none else "—" }}</div>
+    <div class="hint"><a href="{{ url_for('submissions') }}">View all →</a></div>
+  </div>
+  <div class="card stat">
+    <div class="label">App</div>
+    <div class="value">v{{ app_version }}</div>
+    <div class="hint">up {{ uptime }}</div>
+  </div>
+</section>
+
+<p class="sub" style="font-size:13px;margin:0 0 20px">Refresh the page: the instance and AZ change as the load balancer spreads requests across instances.</p>
+
+<section class="grid two">
+  <div class="card" id="form">
+    <h2>Send a message</h2>
+    <p class="sub" style="margin:-8px 0 18px;font-size:14px">Saved to RDS MySQL by whichever instance handles your request.</p>
+    <form method="post" action="{{ url_for('submit') }}" novalidate>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="row">
+        <div class="field">
+          <label for="name">Name</label>
+          <input id="name" name="name" maxlength="100" required value="{{ form.name or '' }}" autocomplete="name">
+          {% if errors.name %}<div class="err">{{ errors.name }}</div>{% endif %}
+        </div>
+        <div class="field">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" maxlength="255" required value="{{ form.email or '' }}" autocomplete="email">
+          {% if errors.email %}<div class="err">{{ errors.email }}</div>{% endif %}
+        </div>
+      </div>
+      <div class="field">
+        <label for="category">Category</label>
+        <select id="category" name="category" required>
+          <option value="">Choose…</option>
+          {% for c in categories %}<option value="{{ c }}" {{ 'selected' if form.category == c }}>{{ c }}</option>{% endfor %}
+        </select>
+        {% if errors.category %}<div class="err">{{ errors.category }}</div>{% endif %}
+      </div>
+      <div class="field">
+        <label for="message">Message</label>
+        <textarea id="message" name="message" maxlength="2000" required>{{ form.message or '' }}</textarea>
+        {% if errors.message %}<div class="err">{{ errors.message }}</div>{% endif %}
+      </div>
+      <button class="btn" type="submit">Save to database</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
+      <h2>Recent submissions</h2>
+      <a href="{{ url_for('submissions') }}" style="font-size:14px">View all →</a>
+    </div>
+    {% if recent %}
+      <ul class="list">
+        {% for r in recent %}
+        <li>
+          <div class="meta-line">
+            <strong style="color:var(--text)">{{ r.name }}</strong>
+            <span class="pill tag">{{ r.category }}</span>
+            <span>#{{ r.id }} · {{ r.created_at.strftime('%d %b %Y, %H:%M') }} UTC · {{ r.az }}</span>
+          </div>
+          <p class="msg clamp">{{ r.message }}</p>
+        </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty">{% if db_ok %}No submissions yet. Be the first!{% else %}Database unavailable.{% endif %}</div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
