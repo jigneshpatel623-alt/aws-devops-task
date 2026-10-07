@@ -37,6 +37,8 @@ resource "aws_db_instance" "this" {
   publicly_accessible    = false
   multi_az               = var.multi_az
 
+  iam_database_authentication_enabled = true
+
   backup_retention_period    = var.backup_retention_period
   backup_window              = "18:00-19:00"
   maintenance_window         = "sun:19:30-sun:20:30"
