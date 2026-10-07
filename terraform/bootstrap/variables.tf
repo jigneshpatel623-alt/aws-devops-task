@@ -16,6 +16,16 @@ variable "github_repo" {
   default     = "jigneshpatel623-alt/aws-devops-task"
 }
 
+variable "github_immutable_sub_prefix" {
+  description = <<-EOT
+    GitHub's immutable OIDC subject prefix for the repo, as returned by
+    `gh api repos/<owner>/<repo>/actions/oidc/customization/sub` (sub_claim_prefix).
+    Set to "" if the repo uses only the classic repo:owner/name subject.
+  EOT
+  type        = string
+  default     = "repo:jigneshpatel623-alt@259783880/aws-devops-task@1409037056"
+}
+
 variable "create_oidc_provider" {
   description = "Set to false if the GitHub OIDC provider already exists in this AWS account"
   type        = bool

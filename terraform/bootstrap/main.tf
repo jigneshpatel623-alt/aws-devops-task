@@ -104,6 +104,11 @@ data "aws_iam_openid_connect_provider" "github" {
 }
 
 locals {
+  github_sub_prefixes = compact([
+    "repo:${var.github_repo}",
+    var.github_immutable_sub_prefix,
+  ])
+
   oidc_provider_arn = var.create_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : data.aws_iam_openid_connect_provider.github[0].arn
 }
 
@@ -123,15 +128,19 @@ data "aws_iam_policy_document" "github_trust" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # Only this repository: main branch, pull requests, and the production environment
+    # Only this repository: main branch, pull requests, and the production environment.
+    # Accepts both the classic subject (repo:owner/name:...) and GitHub's immutable
+    # subject (repo:owner@<owner_id>/name@<repo_id>:...).
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values = [
-        "repo:${var.github_repo}:ref:refs/heads/main",
-        "repo:${var.github_repo}:pull_request",
-        "repo:${var.github_repo}:environment:production",
-      ]
+      values = flatten([
+        for prefix in local.github_sub_prefixes : [
+          "${prefix}:ref:refs/heads/main",
+          "${prefix}:pull_request",
+          "${prefix}:environment:production",
+        ]
+      ])
     }
   }
 }
