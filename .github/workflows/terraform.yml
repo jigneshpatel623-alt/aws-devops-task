@@ -40,8 +40,29 @@ jobs:
   validate:
     name: Format & Validate
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+
+      # ACM DNS validation can only succeed if the domain is publicly delegated.
+      # A domain that is unregistered, on registry hold (serverHold) or not yet
+      # pointed at the Route 53 name servers makes the apply hang until the AWS
+      # session expires, so catch it here in seconds instead.
+      - name: Check public DNS delegation of custom domain
+        if: vars.DOMAIN_NAME != ''
+        env:
+          DOMAIN: ${{ vars.DOMAIN_NAME }}
+        run: |
+          if ! resp=$(curl -fsS --max-time 15 "https://dns.google/resolve?name=${DOMAIN}&type=NS"); then
+            echo "::warning::Could not query public DNS for ${DOMAIN}; skipping delegation check"
+            exit 0
+          fi
+          ns=$(echo "$resp" | jq -r '[.Answer[]? | select(.type == 2) | .data] | join(" ")')
+          if [ "$(echo "$resp" | jq -r '.Status')" != "0" ] || [ -z "$ns" ]; then
+            echo "::error::${DOMAIN} has no public NS records (DNS status $(echo "$resp" | jq -r '.Status'); 3 = NXDOMAIN). The ACM certificate cannot be validated. Check the domain's registration status at the registrar (e.g. serverHold / unverified contact email) and that its name servers are the Route 53 zone's, or clear the DOMAIN_NAME repository variable to deploy with a self-signed certificate."
+            exit 1
+          fi
+          echo "${DOMAIN} is delegated to: ${ns}"
 
       - uses: hashicorp/setup-terraform@v4
         with:
@@ -78,6 +99,7 @@ jobs:
     name: Terraform Plan
     needs: [validate]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -127,6 +149,9 @@ jobs:
     needs: [plan, security-scan]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    # Must stay below the 1h OIDC session: an apply that outlives its credentials
+    # cannot save state or release the state lock.
+    timeout-minutes: 50
     environment: production   # add required reviewers in repo settings for manual approval
     outputs:
       app_url: ${{ steps.out.outputs.app_url }}

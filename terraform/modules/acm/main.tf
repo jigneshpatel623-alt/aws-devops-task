@@ -46,6 +46,14 @@ resource "aws_acm_certificate_validation" "this" {
   count                   = local.use_dns ? 1 : 0
   certificate_arn         = aws_acm_certificate.this[0].arn
   validation_record_fqdns = [for r in aws_route53_record.validation : r.fqdn]
+
+  # Validation normally takes a few minutes. If the domain is not publicly
+  # delegated to this Route 53 zone it never completes, so fail well inside the
+  # 1h CI credential lifetime instead of hanging until the session expires
+  # (which also loses the state write and leaves the state lock behind).
+  timeouts {
+    create = "15m"
+  }
 }
 
 # --- Mode 2: self-signed certificate imported into ACM ----------------------

@@ -138,6 +138,9 @@ module "asg" {
     app_version = local.app_version
   })
 
-  # App code must be in S3 and the DB reachable before instances boot
-  depends_on = [aws_s3_object.app, module.rds, module.secrets]
+  # App code must be in S3 and the DB reachable before instances boot.
+  # module.alb: the target group only health-checks targets once the HTTPS
+  # listener attaches it to the ALB, so the ASG must not start waiting for
+  # healthy capacity before the listener (and its certificate) exists.
+  depends_on = [aws_s3_object.app, module.rds, module.secrets, module.alb]
 }
