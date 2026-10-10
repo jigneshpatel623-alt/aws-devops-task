@@ -16,6 +16,11 @@ on:
       - "scripts/**"
       - ".github/workflows/terraform.yml"
   workflow_dispatch:
+    inputs:
+      force_unlock_id:
+        description: "Stale state lock ID to release before planning (from an 'Error acquiring the state lock' message). Leave empty normally."
+        required: false
+        default: ""
 
 permissions:
   id-token: write       # OIDC -> AWS (no stored access keys)
@@ -133,6 +138,15 @@ jobs:
           terraform init -input=false
           -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
           -backend-config="region=${{ vars.AWS_REGION }}"
+
+      # Only for a lock left behind by a run that died without releasing it.
+      # The concurrency group guarantees no other run of this workflow holds it.
+      - name: Release stale state lock
+        if: github.event_name == 'workflow_dispatch' && inputs.force_unlock_id != ''
+        working-directory: ${{ env.WORKDIR }}
+        env:
+          LOCK_ID: ${{ inputs.force_unlock_id }}
+        run: terraform force-unlock -force "$LOCK_ID"
 
       - name: terraform plan
         id: plan
