@@ -146,7 +146,17 @@ jobs:
         working-directory: ${{ env.WORKDIR }}
         env:
           LOCK_ID: ${{ inputs.force_unlock_id }}
-        run: terraform force-unlock -force "$LOCK_ID"
+        # A re-run replays the same input after the lock is already gone; that
+        # is not an error, there is simply nothing left to release.
+        run: |
+          if out=$(terraform force-unlock -force "$LOCK_ID" 2>&1); then
+            echo "$out"
+          elif echo "$out" | grep -qE "NoSuchKey|StatusCode: 404"; then
+            echo "::notice::No state lock to release (already released); continuing"
+          else
+            echo "$out"
+            exit 1
+          fi
 
       - name: terraform plan
         id: plan
