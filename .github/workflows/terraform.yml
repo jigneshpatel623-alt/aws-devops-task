@@ -32,8 +32,8 @@ env:
   TF_IN_AUTOMATION: "true"
   AWS_REGION: ${{ vars.AWS_REGION }}
   TF_VAR_aws_region: ${{ vars.AWS_REGION }}
-  TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
   TF_VAR_app_subdomain: ${{ vars.APP_SUBDOMAIN }}
+  # TF_VAR_domain_name is set per job from the validate job's "Resolve effective domain" step
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -41,28 +41,40 @@ jobs:
     name: Format & Validate
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      domain_name: ${{ steps.domain.outputs.domain_name }}
     steps:
       - uses: actions/checkout@v7
 
       # ACM DNS validation can only succeed if the domain is publicly delegated.
       # A domain that is unregistered, on registry hold (serverHold) or not yet
       # pointed at the Route 53 name servers makes the apply hang until the AWS
-      # session expires, so catch it here in seconds instead.
-      - name: Check public DNS delegation of custom domain
-        if: vars.DOMAIN_NAME != ''
+      # session expires. Decide the certificate mode here on every run: use the
+      # custom domain when it resolves publicly, otherwise fall back to the
+      # self-signed certificate on the ALB DNS name. The next run switches back
+      # automatically once the domain resolves again.
+      - name: Resolve effective domain
+        id: domain
         env:
           DOMAIN: ${{ vars.DOMAIN_NAME }}
         run: |
-          if ! resp=$(curl -fsS --max-time 15 "https://dns.google/resolve?name=${DOMAIN}&type=NS"); then
-            echo "::warning::Could not query public DNS for ${DOMAIN}; skipping delegation check"
-            exit 0
+          effective="$DOMAIN"
+          if [ -z "$DOMAIN" ]; then
+            echo "DOMAIN_NAME is not set: self-signed certificate on the ALB DNS name"
+          elif ! resp=$(curl -fsS --max-time 15 "https://dns.google/resolve?name=${DOMAIN}&type=NS"); then
+            echo "::warning::Could not query public DNS for ${DOMAIN}; assuming it is delegated"
+          else
+            status=$(echo "$resp" | jq -r '.Status')
+            ns=$(echo "$resp" | jq -r '[.Answer[]? | select(.type == 2) | .data] | join(" ")')
+            if [ "$status" != "0" ] || [ -z "$ns" ]; then
+              effective=""
+              echo "::warning::${DOMAIN} has no public NS records (DNS status ${status}; 3 = NXDOMAIN), so an ACM certificate for it cannot be validated. Falling back to a self-signed certificate on the ALB DNS name. Check the domain's registration status at the registrar (e.g. serverHold / unverified contact email) and its name servers; the next run uses the domain again once it resolves."
+            else
+              echo "${DOMAIN} is delegated to: ${ns}"
+            fi
           fi
-          ns=$(echo "$resp" | jq -r '[.Answer[]? | select(.type == 2) | .data] | join(" ")')
-          if [ "$(echo "$resp" | jq -r '.Status')" != "0" ] || [ -z "$ns" ]; then
-            echo "::error::${DOMAIN} has no public NS records (DNS status $(echo "$resp" | jq -r '.Status'); 3 = NXDOMAIN). The ACM certificate cannot be validated. Check the domain's registration status at the registrar (e.g. serverHold / unverified contact email) and that its name servers are the Route 53 zone's, or clear the DOMAIN_NAME repository variable to deploy with a self-signed certificate."
-            exit 1
-          fi
-          echo "${DOMAIN} is delegated to: ${ns}"
+          echo "domain_name=${effective}" >> "$GITHUB_OUTPUT"
+          echo "Certificate mode: ${effective:-self-signed (no usable custom domain)}" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: hashicorp/setup-terraform@v4
         with:
@@ -100,6 +112,8 @@ jobs:
     needs: [validate]
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      TF_VAR_domain_name: ${{ needs.validate.outputs.domain_name }}
     steps:
       - uses: actions/checkout@v7
 
@@ -146,9 +160,11 @@ jobs:
   # ---------------------------------------------------------------------------
   apply:
     name: Terraform Apply
-    needs: [plan, security-scan]
+    needs: [validate, plan, security-scan]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    env:
+      TF_VAR_domain_name: ${{ needs.validate.outputs.domain_name }}
     # Must stay below the 1h OIDC session: an apply that outlives its credentials
     # cannot save state or release the state lock.
     timeout-minutes: 50
